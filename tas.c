@@ -49,8 +49,9 @@ int main();
 void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
 inputstr_s* get_input_words_struct(char *__restrict__ input);
 void *lev_thread_f(void *__restrict__ args);
-//void pr(const int threadid, lev_found_s* l);
+void pr(const int threadid, lev_found_s* l);
 
+unsigned int debug = 0;
 
 int main()
 {
@@ -102,11 +103,15 @@ int main()
 	calc_ptrs_offset_by_size(ptr_off_size, words_ptr, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
 	memcpy(ptr_off_size_tmp, ptr_off_size, sizeof(ptr_off_size));
 
-/*	for(unsigned char l = 0; l < 46; l++)
+	if(debug)
+{
+	for(unsigned char l = 0; l < 46; l++)
 {
 	printf("ptr_off_size[%u]:%lu\n",l,*(long*)(ptr_off_size_tmp + (l*8)));
 
-}*/
+} getchar();
+
+}
 
 	filebuf_ptr = filebuf;
 	void* filebuf_prev_word_ptr = filebuf_ptr;
@@ -131,7 +136,6 @@ int main()
 }
 
 	free(ptr_off_size_tmp);
-
 
 	char input[INPUT_CHARACTER_LIMIT];
 
@@ -190,42 +194,52 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 {
 
 	pthread_mutex_lock(&lock);
-//	printf("lev_found[%u].dist(%u) < %u pass? ",(LEV_SIZE-1),lev_found[LEV_SIZE-1].dist,i);
+	if(debug) printf("lev_found[%u].dist(%u) < %u pass? ",(LEV_SIZE-1),lev_found[LEV_SIZE-1].dist,i);
 	if((unsigned int)i > lev_found[LEV_SIZE-1].dist)
 {
-//	printf("yes\n");
+	if(debug)
+{
+	printf("yes\n");
+	printf("going next\n");
+
+}
 	pthread_mutex_unlock(&lock);
-//	printf("going next\n");
 	break;
 }
-//	printf("no\n");
+	if(debug) printf("no\n");
 	pthread_mutex_unlock(&lock);
 	for(unsigned int s = 0; s < 2; s++)
 {
 	if(sign[s] == -1 && (unsigned int)i == inputwords_ptr->len)
 		continue;
 
-//	printf("signed offset:%d\n",i*sign[s]);
 //	printf("len->%u\n",inputwords_ptr->len);
 	unsigned int len_off = (inputwords_ptr->len) + (i*sign[s]);
-//	printf("len_off->%u\n",len_off);
-//	getchar();
 	void* mem_start = ptr_off_size[len_off];
 	void* mem_end = ptr_off_size[len_off+1];
-//	printf("mem_start:%lu\n",(unsigned long)mem_start);
-//	printf("mem_end  :%lu\n",(unsigned long)mem_end);
+	const unsigned int maxcpu = (mem_end-mem_start)/(len_off+1);
 
-//	printf("listing::\n\n");
-//	for(void* temp_ptr = mem_start; temp_ptr < mem_end; temp_ptr += (len_off + 1))
-//		printf("%lu : %s\n",(long)temp_ptr, (char*)temp_ptr);
-//	printf(":: end list\n");
-//	getchar();
+	if(debug)
+{
+	printf("mem_start:%lu\n",(unsigned long)mem_start);
+	printf("mem_end  :%lu\n",(unsigned long)mem_end);
+	printf("signed offset:%d\n",i*sign[s]);
+	printf("len_off->%u\n",len_off);
+	printf("max cpu: %u\n",maxcpu);
+	getchar();
+
+	printf("listing::\n\n");
+	for(void* temp_ptr = mem_start; temp_ptr < mem_end; temp_ptr += (len_off + 1))
+		printf("%lu : %s\n",(long)temp_ptr, (char*)temp_ptr);
+	printf(":: end list\n");
+	getchar();
+
+}
 
 	memset(thread_args, 0, sizeof(lev_thread_args_s) * cpus);
-	for(unsigned int j = 0; j < cpus; j++)
+	for(unsigned int j = 0; j < cpus && j < maxcpu; j++)
 {
 	thread_args[j].st = inputwords_ptr->st;
-	if(j*(len_off+1) >= mem_end-mem_start) break; // break on cpu > count(wlen)
 	thread_args[j].mem_start = mem_start + j*(len_off + 1);
 	thread_args[j].mem_end = mem_end;
 	thread_args[j].w2len = len_off;
@@ -233,7 +247,9 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 	thread_args[j].threadid = j;
 	thread_args[j].lf_ptr = lev_found;
 	thread_args[j].lk_ptr = &lock;
-/*
+
+	if(debug)
+{
 	printf("\nthread_args[%u].st:%s\n",j,thread_args[j].st);
 	printf("thread_args[%u].mem_start:%lu\n",j,(unsigned long)thread_args[j].mem_start);
 	printf("thread_args[%u].mem_end:%lu\n",j,(unsigned long)thread_args[j].mem_end);
@@ -241,13 +257,14 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 	printf("thread_args[%u].step:%u\n",j,thread_args[j].step);
 	printf("thread_args[%u].threadid:%u\n\n",j,thread_args[j].threadid);
 	printf("going to create thread: %u?\n",j);
-	getchar();*/
+	getchar();
+
+}
 	pthread_create(&ptid[j], NULL, &lev_thread_f, &thread_args[j]);
-//	printf("ok, waiting\n");
-//	getchar();
+	if(debug) printf("ok, waiting\n");
 } //end j
 
-	for(unsigned int j = 0; j < cpus; j++)
+	for(unsigned int j = 0; j < cpus && j < maxcpu; j++)
 		pthread_join(ptid[j],NULL);
 	if(i == 0)
 		break; // 0 * sign is same twice
@@ -453,17 +470,21 @@ void *lev_thread_f(void *void_arg)
 	void* mem_start = args->mem_start;
 	void* mem_end = args->mem_end;
 	const unsigned int step = args->step;
-//	const unsigned int threadid = args->threadid;
+	const unsigned int threadid = args->threadid;
 	const unsigned int w2len = args->w2len;
 	const unsigned int wlen = strlen(st);
-/*	printf("thread (%u) args:\n",threadid);
+
+	if(debug)
+{
+	printf("thread (%u) args:\n",threadid);
 	printf("st:%s\n",st);
 	printf("mem_start:%lu\n",(long)mem_start);
 	printf("mem_end:%lu\n",(long)mem_end);
 	printf("w2len:%u\n",w2len);
-	printf("step:%u\n",step); */
-//	return;
-//	getchar();
+	printf("step:%u\n",step);
+	getchar();
+
+}
 
 	unsigned int closest_dist_arr[LEV_SIZE];
 	void* closest_ptr_arr[LEV_SIZE];
@@ -482,17 +503,20 @@ void *lev_thread_f(void *void_arg)
 
 //FOR
 	unsigned int l = levenshtein_n((char*)mem_ptr, w2len, st, wlen);
-//	printf("\n(%u)new word:%s %u\n%lu\n",threadid,(char*)mem_ptr,l,(unsigned long)mem_ptr);
+	if(debug) printf("\n(%u)new word:%s %u\n%lu\n",threadid,(char*)mem_ptr,l,(unsigned long)mem_ptr);
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 { //FOR L
 
-//	printf("(%u) add at %u?: ",threadid,i);
+	if(debug) printf("(%u) add at %u?: ",threadid,i);
 	if(l < closest_dist_arr[i])
 { //IF
 
-//	printf("(%u) yes\n",threadid);
-//	printf("(%u)add at %u\n",threadid,i);
+	if(debug)
+{
+	printf("(%u) yes\n",threadid);
+	printf("(%u)add at %u\n",threadid,i);
+}
 	dist_tmp1 = l;
 	ptr_tmp1 = mem_ptr;
 
@@ -507,19 +531,23 @@ void *lev_thread_f(void *void_arg)
 //	if(ptr_tmp1 == 0)
 //		break;
 }
-//	printf("\nswapped\n");
-/*	for(unsigned int k = 0; k < LEV_SIZE; k++)
+	if(debug)
+{
+	printf("\nswapped\n");
+	for(unsigned int k = 0; k < LEV_SIZE; k++)
 {
 	printf("(%u) [%u]: %s %u\n",threadid,k,(char*)closest_ptr_arr[k],closest_dist_arr[k]);
 
-} getchar();*/
+} getchar();
+
+}
 	break;
 
 } //IF
 
 else
 {
-//	printf("(%u) dont add at %u\n",threadid,i);
+	if(debug) printf("(%u) dont add at %u\n",threadid,i);
 }
 
 } //FOR L
@@ -532,13 +560,18 @@ else
 
 
 
-//	printf("(%u) end thread\n\n",threadid);
-//	for(unsigned int i = 0; i < LEV_SIZE; i++)
-//		printf("(%u) [%u]:%s  dist:%u\n",threadid,i,(char*)closest_ptr_arr[i],closest_dist_arr[i]);
-//	printf("\n\n\n");
+	if(debug)
+{
+	printf("(%u) end thread\n\n",threadid);
+	for(unsigned int i = 0; i < LEV_SIZE; i++)
+		printf("(%u) [%u]:%s  dist:%u\n",threadid,i,(char*)closest_ptr_arr[i],closest_dist_arr[i]);
+	printf("\n\n\n");
 
 
-//	printf("adding to lev_found[]\n");
+	printf("adding to lev_found[]\n");
+
+}
+
 
 	pthread_mutex_lock(lock_p);
 	unsigned int lastpos = 0;
@@ -583,11 +616,15 @@ else
 
 
 } //end for i
-/*
+
+if(debug)
+{
 printf("(%u) added::\n",threadid);
-pr(threadid, lf_ptr);
+pr(threadid, lev_found);
 printf("\n");
-getchar();*/
+getchar();
+}
+
 pthread_mutex_unlock(lock_p);
 pthread_exit(NULL);
 
