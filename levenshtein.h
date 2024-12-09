@@ -14,10 +14,10 @@ extern "C" {
 #endif
 
 size_t
-levenshtein(const char *a, const char *b);
+levenshtein(const char *__restrict__ a, const char *__restrict__ b);
 
 size_t
-levenshtein_n (const char *a, const size_t length, const char *b, const size_t bLength);
+levenshtein_n(const char *__restrict__ a, const size_t length, const char *__restrict__ b, const size_t bLength);
 
 #ifdef __cplusplus
 }

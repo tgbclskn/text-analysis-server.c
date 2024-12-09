@@ -10,7 +10,7 @@
 // Returns a size_t, depicting the difference between `a` and `b`.
 // See <https://en.wikipedia.org/wiki/Levenshtein_distance> for more information.
 size_t
-levenshtein_n(const char *a, const size_t length, const char *b, const size_t bLength) {
+levenshtein_n(const char *__restrict__ a, const size_t length, const char *__restrict__ b, const size_t bLength) {
   // Shortcut optimizations / degenerate cases.
   if (a == b) {
     return 0;
@@ -64,7 +64,7 @@ levenshtein_n(const char *a, const size_t length, const char *b, const size_t bL
 }
 
 size_t
-levenshtein(const char *a, const char *b) {
+levenshtein(const char *__restrict__ a, const char *__restrict__ b) {
   const size_t length = strlen(a);
   const size_t bLength = strlen(b);
 
