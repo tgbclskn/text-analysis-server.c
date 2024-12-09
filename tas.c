@@ -13,9 +13,9 @@
 #define STR(x) _STR(x)
 #define INPUT_CHARACTER_LIMIT 100
 #define OUTPUT_CHARACTER_LIMIT 200
-#define PORT_NUMBER 60000
 //#define LEVENSHTEIN_LIST_LIMIT 5
 #define LEV_SIZE 5
+
 
 typedef struct
 {
@@ -47,22 +47,29 @@ typedef struct
 	#endif
 }	lev_thread_args_s;
 
+typedef struct { int new_conn; unsigned long id; } tas_args;
+
 void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
 inputstr_s* get_input_words_struct(char *__restrict__ input);
 void *lev_thread_f(void *__restrict__ args);
-void tas();
+void *tas(void* sock);
+void term(int sock, void* arg);
 #ifdef DEBUG
 void pr(const int threadid, lev_found_s* l);
 #endif
 
 
-void tas()
+void *tas(void* arg)
 {
+	const int sock = ((tas_args*)arg)->new_conn;
+	const int id = ((tas_args*)arg)->id;
+
+
 	int fd;
 	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
 {
-	printf("Could not open dictionary file 'basic_english_2000.txt'\n");
-	exit(1);
+	write(sock, "Could not open dictionary file 'basic_english_2000.txt'\n", 56);
+	term(sock, arg);
 }
 
 	struct stat filestats_s;
@@ -70,8 +77,8 @@ void tas()
 	unsigned long filesize = filestats_s.st_size;
 	if(filesize <= 0)
 {
-	printf("err in getting filesize");
-	exit(1);
+	write(sock, "err in getting filesize\n", 24);
+	term(sock, arg);
 }
 
 	void *filebuf = malloc(filesize), *filebuf_ptr = filebuf;
@@ -80,8 +87,8 @@ void tas()
 	long charsread = read(fd,filebuf_ptr,filesize);
 	if(charsread == -1)
 {
-	printf("err in reading");
-	exit(1);
+	write(sock, "err in reading\n", 15);
+	term(sock, arg);
 }
 
 	unsigned int lettercount[46]; // Pneumonoultramicroscopicsilicovolcanoconiosis
@@ -139,19 +146,24 @@ void tas()
 
 	free(ptr_off_size_tmp);
 
-	char input[INPUT_CHARACTER_LIMIT];
+	char input[INPUT_CHARACTER_LIMIT + 2] = { 0 };
 
-	printf("Please enter your input string: \n=>");
+	write(sock, "Please enter your input string: \n=>", 35);
+
+	read(sock, input, INPUT_CHARACTER_LIMIT + 1);
+
+
 	for(unsigned long i = 0; ; i++)
 {
-	if(i == INPUT_CHARACTER_LIMIT)
+	if(i == INPUT_CHARACTER_LIMIT + 1)
 {
-	printf("Input string is longer than" STR(INPUT_CHARACTER_LIMIT) "\n");
-	exit(1);
+	const char* answer = "\nInput string is longer than " STR(INPUT_CHARACTER_LIMIT) "\n";
+	write(sock, answer, strlen(answer));
+	term(sock, arg);
 }
 
-	char c = getchar();
-	if(c == '\n')
+	char c = input[i];
+	if(c == '\n' || c == 13)
 {
 	input[i] = '\0';
 	break;
@@ -159,8 +171,8 @@ void tas()
 
 	if(!((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 32))
 {
-	printf("Input string contains unsupported characters\n");
-	exit(1);
+	write(sock, "Input string contains unsupported characters\n", 45);
+	term(sock, arg);
 }
 
 	input[i] = tolower(c);
@@ -287,18 +299,20 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 
 } //end wlen
 
-	printf("\nWord %u: %s\nMATCHES: :",wn++,(char*)inputwords_ptr->st);
+	char outbuf[100]; int ans_len;
+	ans_len = sprintf(outbuf, "\nWord %u: %s\nMATCHES: :", wn++, (char*)inputwords_ptr->st);
+	write(sock, outbuf, ans_len);
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
 	if(lev_found[i].ptr == 0) break;
-	printf(" %s(%u)",(char*)lev_found[i].ptr, lev_found[i].dist);
+	//memset(outbuf, 0, 100);
+	ans_len = sprintf(outbuf, " %s(%u)", (char*)lev_found[i].ptr, lev_found[i].dist);
+	write(sock, outbuf, ans_len);
 
-} printf("\n");
+} write(sock, "\n", 1);
 
 	unsigned int answer = 'N';
-//	printf("add (y/N)?:");
-//	scanf("%c",&answer);
 
 	inputwords_ptr->toadd = (answer == 'y' || answer == 'Y')? 1 : 0;
 
@@ -401,11 +415,10 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 
 
 }
-printf("bye\n");
-exit(0);
+write(sock, "\nbye\n\n", 6);
+term(sock, arg);
 
-
-
+exit(1);
 } //end main
 
 void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsigned int *lettercount) // order in mem by wlen
@@ -646,6 +659,7 @@ pthread_exit(NULL);
 
 }
 
+
 #ifdef DEBUG
 void pr(const int threadid, lev_found_s* l)
 {
@@ -658,3 +672,12 @@ void pr(const int threadid, lev_found_s* l)
 
 }
 #endif
+
+
+void term(int sock, void* arg)
+{
+	close(sock);
+	free(arg);
+	pthread_exit(NULL);
+
+}
