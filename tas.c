@@ -50,13 +50,13 @@ typedef struct
 void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
 inputstr_s* get_input_words_struct(char *__restrict__ input);
 void *lev_thread_f(void *__restrict__ args);
-void asd();
+void tas();
 #ifdef DEBUG
 void pr(const int threadid, lev_found_s* l);
 #endif
 
 
-void asd()
+void tas()
 {
 	int fd;
 	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)

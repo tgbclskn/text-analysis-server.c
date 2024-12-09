@@ -1,7 +1,7 @@
-extern void asd();
+extern void tas();
 
 int main()
 {
-	asd();
+	tas();
 
 }
