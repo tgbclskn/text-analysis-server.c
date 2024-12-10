@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/sysinfo.h>
 #include <ctype.h>
 #include <pthread.h>
@@ -8,7 +7,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "levenshtein.h"
-#define PTR_OFF_SIZE_TMP_TERM '\0'
 #define _STR(x) #x
 #define STR(x) _STR(x)
 #define INPUT_CHARACTER_LIMIT 100
@@ -24,6 +22,7 @@ typedef struct
 	unsigned int toadd;
 
 } inputstr_s;
+
 
 typedef struct
 {
@@ -47,9 +46,16 @@ typedef struct
 	#endif
 }	lev_thread_args_s;
 
-typedef struct { int new_conn; unsigned long id; } tas_args;
 
-void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
+typedef struct {
+        void** ptr_off_size;
+        pthread_mutex_t* file_lock;
+        void* filebuf;
+        int new_conn;
+        unsigned long id;
+} tas_args;
+
+
 inputstr_s* get_input_words_struct(char *__restrict__ input);
 void *lev_thread_f(void *__restrict__ args);
 void *tas(void* sock);
@@ -61,99 +67,21 @@ void pr(const int threadid, lev_found_s* l);
 
 void *tas(void* arg)
 {
-	const int sock = ((tas_args*)arg)->new_conn;
-	const int id = ((tas_args*)arg)->id;
+	int sock = ((tas_args*)arg)->new_conn;
+	void** ptr_off_size = ((tas_args*)arg)->ptr_off_size;
+//	void* filebuf = ((tas_args*)arg)->filebuf;
+//	pthread_mutex_t* file_lock = ((tas_args*)arg)->file_lock;
+//	const int id = ((tas_args*)arg)->id;
 
 
-	int fd;
-	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
-{
-	write(sock, "Could not open dictionary file 'basic_english_2000.txt'\n", 56);
-	term(sock, arg);
-}
-
-	struct stat filestats_s;
-	fstat(fd, &filestats_s);
-	unsigned long filesize = filestats_s.st_size;
-	if(filesize <= 0)
-{
-	write(sock, "err in getting filesize\n", 24);
-	term(sock, arg);
-}
-
-	void *filebuf = malloc(filesize), *filebuf_ptr = filebuf;
-
-	void *words = malloc(filesize), *words_ptr = words; //file content ordered by word length (offsets in ptr_off_size)
-	long charsread = read(fd,filebuf_ptr,filesize);
-	if(charsread == -1)
-{
-	write(sock, "err in reading\n", 15);
-	term(sock, arg);
-}
-
-	unsigned int lettercount[46]; // Pneumonoultramicroscopicsilicovolcanoconiosis
-	memset(&lettercount, 0, sizeof(int) * 46);
-
-
-	filebuf_ptr = filebuf;
-	for(unsigned long c, l = 0; (c = *((char*)filebuf_ptr++)) != '\0';  )
-{
-	if(c == '\n')
-{
-		lettercount[l]++;
-		l = 0;
-}
-	else
-		l++;
-}
-
-
-	void *ptr_off_size[46] = { 0 };
-	void *ptr_off_size_tmp = malloc(sizeof(ptr_off_size)); //copy pointer
-	calc_ptrs_offset_by_size(ptr_off_size, words_ptr, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
-	memcpy(ptr_off_size_tmp, ptr_off_size, sizeof(ptr_off_size));
-
-	#ifdef DEBUG
-	for(unsigned char l = 0; l < 46; l++)
-{
-	printf("ptr_off_size[%u]:%lu\n",l,*(long*)(ptr_off_size_tmp + (l*8)));
-
-}
-	getchar();
-	#endif
-
-	filebuf_ptr = filebuf;
-	void* filebuf_prev_word_ptr = filebuf_ptr;
-	int l = 0;
-	for(unsigned char c; (c = *((char*)filebuf_ptr++)) != '\0';  ) // order by len at offset memory address ptr_off_size[len]
-{
-	if(c == '\n')
-{
-		unsigned int size = l;
-		for(; l > 0; l--) // copy \n too
-{
-		*((char*)((long*)ptr_off_size_tmp)[size]) = tolower(*((char*)filebuf_prev_word_ptr++));
-		((long*)ptr_off_size_tmp)[size]++;
-}
-		*((char*)((long*)ptr_off_size_tmp)[size]) = PTR_OFF_SIZE_TMP_TERM;
-		((long*)ptr_off_size_tmp)[size]++;
-		filebuf_prev_word_ptr++;
-		l = 0;
-}
-	else
-		l++;
-}
-
-	free(ptr_off_size_tmp);
-
-	char input[INPUT_CHARACTER_LIMIT + 2] = { 0 };
+	char input[INPUT_CHARACTER_LIMIT + 5] = { 0 };
 
 	write(sock, "Please enter your input string: \n=>", 35);
 
-	read(sock, input, INPUT_CHARACTER_LIMIT + 1);
+	read(sock, input, INPUT_CHARACTER_LIMIT + 3);
 
 
-	for(unsigned long i = 0; ; i++)
+	for(unsigned int i = 0; ; i++)
 {
 	if(i == INPUT_CHARACTER_LIMIT + 1)
 {
@@ -163,9 +91,10 @@ void *tas(void* arg)
 }
 
 	char c = input[i];
-	if(c == '\n' || c == 13)
+
+	if(c == 13 || c == 10 || c == 0)
 {
-	input[i] = '\0';
+	for(unsigned int j = i; j < sizeof(input); j++) input[j] = '\0';
 	break;
 }
 
@@ -179,9 +108,24 @@ void *tas(void* arg)
 
 }
 
+#ifdef DEBUG
+printf("input buffer::\n");
+for(unsigned int i = 0; i < INPUT_CHARACTER_LIMIT; i++)
+	printf("i:%u ch:|%c| d:%d\n",i,input[i],input[i]);
+printf(":: end\n");
+getchar();
+#endif
 
 
-	inputstr_s *inputwords = get_input_words_struct(input);
+inputstr_s *inputwords = get_input_words_struct(input);
+
+#ifdef DEBUG
+printf("inputstr list::\n");
+for(inputstr_s* ptr = inputwords; ptr->len != 0; ptr++)
+	printf("|%s| len:%d\n",ptr->st, ptr->len);
+printf(":: end");
+getchar();
+#endif
 
 lev_found_s lev_found[LEV_SIZE];
 pthread_mutex_t lock;
@@ -197,7 +141,7 @@ for(unsigned int i = 0; i < LEV_SIZE; i++)
 }
 
 unsigned int wn = 1;
-for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwords)
+for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 {
 
 	if(inputwords_ptr->len == 0)
@@ -232,10 +176,13 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 	pthread_mutex_unlock(&lock);
 	for(unsigned int s = 0; s < 2; s++)
 {
-	if(sign[s] == -1 && (unsigned int)i == inputwords_ptr->len)
+	#ifdef DEBUG
+	printf("sign: %d\n",sign[s]);
+	#endif
+
+	if(sign[s] == -1 && (unsigned int)i >= inputwords_ptr->len)
 		continue;
 
-//	printf("len->%u\n",inputwords_ptr->len);
 	unsigned int len_off = (inputwords_ptr->len) + (i*sign[s]);
 	void* mem_start = ptr_off_size[len_off];
 	void* mem_end = ptr_off_size[len_off+1];
@@ -329,7 +276,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 
 
 	// add new words to file
-
+/*
 	const unsigned long shift[] = {
         0x10000000000,
         0x08000000000,
@@ -396,42 +343,16 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++) //count(*inputwo
 
 
 
-/*
-	for(unsigned long i = 0; i < iwlen;)
-{
-	if(inputwords_ptr->st[i] != *(char*)filebuf_ptr)
-{
-	while(*filebuf_ptr++ != '\n');
-	i = 0;
-	continue;
-}
-	i++;
-	filebuf_ptr++;
-}
-
-	while(*--filebuf_ptr != '\n'); filebuf_ptr++;
-*/
+}*/
 
 
-
-}
 write(sock, "\nbye\n\n", 6);
+free(inputwords);
 term(sock, arg);
 
 exit(1);
 } //end main
 
-void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsigned int *lettercount) // order in mem by wlen
-{
-	ptr_off_size[0] = 0;
-	for(unsigned int i = 1; i < 46; i++)
-{
-	words_ptr += lettercount[i-1] * i; // offset(1) always at 0
-	ptr_off_size[i] = words_ptr;
-
-}
-
-}
 
 inputstr_s* get_input_words_struct(char* input)
 {
@@ -443,7 +364,7 @@ inputstr_s* get_input_words_struct(char* input)
 
 	const char *input_prev_p = input_p;
 	char* cursor = 0;
-	inputstr_s *inputwords = malloc(sizeof(inputstr_s) * inputlen), *inputwords_p = inputwords;
+	inputstr_s *inputwords = malloc(sizeof(inputstr_s) * (inputlen + 1)), *inputwords_p = inputwords;
 	memset(inputwords, 0, sizeof(inputstr_s) * inputlen);
 	for(unsigned int i = 0, cur = 0; i < inputlen + 1; i++ )
 {
@@ -560,8 +481,6 @@ void *lev_thread_f(void *void_arg)
 	closest_dist_arr[j] = dist_tmp1;
 	ptr_tmp1 = ptr_tmp2;
 	dist_tmp1 = dist_tmp2;
-//	if(ptr_tmp1 == 0)
-//		break;
 }
 	#ifdef DEBUG
 	printf("\nswapped\n");
@@ -598,8 +517,6 @@ else
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 		printf("(%u) [%u]:%s  dist:%u\n",threadid,i,(char*)closest_ptr_arr[i],closest_dist_arr[i]);
 	printf("\n\n\n");
-
-
 	printf("adding to lev_found[]\n");
 	#endif
 
@@ -681,3 +598,5 @@ void term(int sock, void* arg)
 	pthread_exit(NULL);
 
 }
+
+
