@@ -10,26 +10,33 @@
 #include<pthread.h>
 #define PORT_NUMBER 8888
 
+typedef struct newword_s
+{
+	char* st;
+	struct newword_s* next;
+} newword;
+
 typedef struct {
 	void** ptr_off_size;
-	pthread_mutex_t* file_lock;
-	void* filebuf;
+	newword** node;
+	pthread_mutex_t* newword_lock;
 	int new_conn;
 	unsigned long id;
 } tas_args;
 
 extern void *tas(void* sock);
 void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
-void re_init(pthread_mutex_t *file_lock, void *__restrict__ *filebuf, void *__restrict__ *words);
+void re_init(void *__restrict__ *filebuf, void *__restrict__ *words);
 int main()
 {
 	const int opt = 1;
-	pthread_mutex_t file_lock; pthread_mutex_init(&file_lock, NULL);
+	pthread_mutex_t newword_lock; pthread_mutex_init(&newword_lock, NULL);
 	void *filebuf = 0, *words = 0; //file content ordered by word length (offsets in ptr_off_size)
 	struct sockaddr_in addr_local = {.sin_family = AF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT_NUMBER)}, addr_new_conn;
 	socklen_t addrsize = sizeof(addr_local), addrsize_peer = sizeof(addr_new_conn);
+	newword* node = 0;
 
-	re_init(&file_lock, &filebuf, &words);
+	re_init(&filebuf, &words);
 
         unsigned int lettercount[46]; // Pneumonoultramicroscopicsilicovolcanoconiosis
         memset(&lettercount, 0, sizeof(int) * 46);
@@ -91,6 +98,10 @@ int main()
 	exit(1);
 }
 
+	int opts = fcntl(sock, F_GETFL, NULL);
+	opts |= O_NONBLOCK;
+	fcntl(sock, F_SETFL, opts);
+
 	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 	setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 
@@ -118,10 +129,44 @@ int main()
 	int fd = accept(sock, (struct sockaddr*)&addr_local, &addrsize);
 	if(fd == -1)
 {
-	printf("Can't accept connection\n");
-	exit(1); //!
+	pthread_mutex_lock(&newword_lock);
+
+	#ifdef DEBUG2
+	printf("head node: %lu\n",(unsigned long)node);
+	#endif
+
+	if(node != 0)
+{
+	#ifdef DEBUG2
+	printf("node != 0\n");
+	#endif
+
+	newword* node_a = node;
+	newword* to_free;
+
+	do
+{
+	#ifdef DEBUG2
+	printf("word: %s\n", node_a->st);
+	#endif
+
+	free(node_a->st);
+	to_free = node_a;
+	node_a = node_a->next;
+	free(to_free);
+}
+	while(node_a != 0);
+
+	node = 0;
+} // end if(node != 0)
+
+	pthread_mutex_unlock(&newword_lock);
+
+	sleep(1);
 }
 
+	else
+{
 	getpeername(fd, (struct sockaddr*)&addr_new_conn, &addrsize_peer);
 	printf("New connection from %s (id: %lu)\n",inet_ntoa(addr_new_conn.sin_addr), id);
 
@@ -129,12 +174,15 @@ int main()
 	arg->new_conn = fd;
 	arg->id = id;
 	arg->ptr_off_size = ptr_off_size;
-	arg->file_lock = &file_lock;
-	arg->filebuf = filebuf;
+	arg->newword_lock = &newword_lock;
+	arg->node = &node;
 
 	pthread_t nonuse;
 	pthread_create(&nonuse, &attr, tas, arg);
 	id++;
+
+}
+
 }
 
 
@@ -155,10 +203,9 @@ void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsign
 
 }
 
-void re_init(pthread_mutex_t *file_lock, void *__restrict__ *filebuf, void *__restrict__ *words)
+void re_init(void *__restrict__ *filebuf, void *__restrict__ *words)
 {
 
-	pthread_mutex_lock(file_lock);
         int fd;
 
 	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
@@ -187,6 +234,5 @@ void re_init(pthread_mutex_t *file_lock, void *__restrict__ *filebuf, void *__re
 }
 
 	close(fd);
-	pthread_mutex_unlock(file_lock);
 
 }

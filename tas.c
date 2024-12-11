@@ -19,7 +19,6 @@ typedef struct
 {
 	char* st;
 	unsigned int len;
-	unsigned int toadd;
 
 } inputstr_s;
 
@@ -46,11 +45,17 @@ typedef struct
 	#endif
 }	lev_thread_args_s;
 
+typedef struct newword_s
+{
+	char* st;
+	struct newword_s* next;
+
+} newword;
 
 typedef struct {
         void** ptr_off_size;
-        pthread_mutex_t* file_lock;
-        void* filebuf;
+	newword** node;
+        pthread_mutex_t* newword_lock;
         int new_conn;
         unsigned long id;
 } tas_args;
@@ -68,17 +73,22 @@ void *tas(void* arg)
 {
 	int sock = ((tas_args*)arg)->new_conn;
 	void** ptr_off_size = ((tas_args*)arg)->ptr_off_size;
-//	void* filebuf = ((tas_args*)arg)->filebuf;
-//	pthread_mutex_t* file_lock = ((tas_args*)arg)->file_lock;
+	newword** ptr_to_node = ((tas_args*)arg)->node;
+	pthread_mutex_t* newword_lock = ((tas_args*)arg)->newword_lock;
 //	const int id = ((tas_args*)arg)->id;
-
+	int lastread;
 
 	char input[INPUT_CHARACTER_LIMIT + 5] = { 0 };
 
 	write(sock, "Please enter your input string: \n=>", 35);
 
-	read(sock, input, INPUT_CHARACTER_LIMIT + 3);
+	lastread = read(sock, input, INPUT_CHARACTER_LIMIT + 3);
 
+	if(input[0] == 13)
+{
+	write(sock, "You haven't supplied an input string\n", 37);
+	term(arg, NULL);
+}
 
 	for(unsigned int i = 0; ; i++)
 {
@@ -91,7 +101,7 @@ void *tas(void* arg)
 
 	char c = input[i];
 
-	if(c == 13 || c == 10 || c == 0)
+	if(c == 13 || c == 10 || c == 0) //?
 {
 	for(unsigned int j = i; j < sizeof(input); j++) input[j] = '\0';
 	break;
@@ -116,7 +126,8 @@ getchar();
 #endif
 
 
-inputstr_s *inputwords = get_input_words_struct(input);
+inputstr_s *inputwords = get_input_words_struct(input); //!!!
+
 
 #ifdef DEBUG
 printf("inputstr list::\n");
@@ -125,6 +136,7 @@ for(inputstr_s* ptr = inputwords; ptr->len != 0; ptr++)
 printf(":: end");
 getchar();
 #endif
+
 
 lev_found_s lev_found[LEV_SIZE];
 pthread_mutex_t lock;
@@ -139,10 +151,10 @@ for(unsigned int i = 0; i < LEV_SIZE; i++)
 	lev_found[i].ptr = 0;
 }
 
+
 unsigned int wn = 1;
 for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 {
-
 	if(inputwords_ptr->len == 0)
 		break;
 
@@ -164,7 +176,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	printf("going next\n");
 	#endif
 
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&lock); // ?
 	break;
 }
 
@@ -172,7 +184,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	printf("no\n");
 	#endif
 
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&lock); //?
 	for(unsigned int s = 0; s < 2; s++)
 {
 	#ifdef DEBUG
@@ -245,22 +257,76 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 } //end wlen
 
-	char outbuf[100]; int ans_len;
+	char outbuf[192]; int ans_len, notexists = ((lev_found[0].dist == 0)? 0: 1);
 	ans_len = sprintf(outbuf, "\nWord %u: %s\nMATCHES: :", wn++, (char*)inputwords_ptr->st);
 	write(sock, outbuf, ans_len);
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
 	if(lev_found[i].ptr == 0) break;
-	//memset(outbuf, 0, 100);
 	ans_len = sprintf(outbuf, " %s(%u)", (char*)lev_found[i].ptr, lev_found[i].dist);
 	write(sock, outbuf, ans_len);
 
 } write(sock, "\n", 1);
 
-	unsigned int answer = 'N';
 
-	inputwords_ptr->toadd = (answer == 'y' || answer == 'Y')? 1 : 0;
+	if(notexists)
+{
+	ans_len = sprintf(outbuf, "WORD %s is not present in dictionary.\n Do you want to add this word to dictionary? (y/N):",inputwords_ptr->st);
+	write(sock, outbuf, ans_len);
+
+	if(lastread == INPUT_CHARACTER_LIMIT+3 && input[INPUT_CHARACTER_LIMIT+2] != 10)
+{
+	do
+{
+	read(sock, input, 1);
+}	while(input[0] != 10);
+
+}	//endif
+
+	do
+{
+	read(sock, input, 3);
+
+	if(input[2] != 10)
+{
+	do
+{
+	read(sock, input, 1);
+}
+	while(input[0] != 10);
+} 	//endif
+
+}
+	while(input[2] != 10);
+
+
+	char answer = input[0];
+
+	if(answer == 'Y' || answer == 'y')
+{	// add word to newword
+
+	pthread_mutex_lock(newword_lock);
+
+	newword** node_n = ptr_to_node;
+	while(*node_n != 0) node_n = &((*node_n)->next);
+
+	*node_n = malloc(sizeof(newword));
+	(*node_n)->st = malloc(inputwords_ptr->len + 1);
+	char *st_tmp = (*node_n)->st, *inputwords_tmp = inputwords_ptr->st;
+
+	for(unsigned int cpc = 0; cpc < inputwords_ptr->len + 1; cpc++)
+		*st_tmp++ = *inputwords_tmp++;
+
+
+	(*node_n)->next = 0;
+
+	pthread_mutex_unlock(newword_lock);
+} //endif answer == y
+
+
+} //endif (notexists)
+
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
@@ -270,9 +336,6 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 
 } //end inputstr
-
-//	printf("end\n");
-
 
 	// add new words to file
 /*
@@ -309,40 +372,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 };
 
-
-	unsigned int shcou = 0;
-	for(unsigned int i = 0; i < 29; i++)
-{
-	if((filesize&shift[i]) == shift[i])
-{
-	shcou = 29-i;
-	break;
-}
-
-}
-
-//	printf("shift by:%u\n",shcou);
-
-
-	for(inputstr_s* inputwords_ptr = inputwords; inputwords_ptr->st != 0 && inputwords_ptr->toadd == 1; inputwords_ptr++)
-{ //for every word to be added
-
-	filebuf_ptr = filebuf;
-
-//	const unsigned long iwlen = strlen(inputwords_ptr);
-
-	//start binary search
-	for(unsigned int i = 0; i < shcou; i++)
-{
-	//
-
-
-
-}
-
-
-
-}*/
+*/
 
 
 
@@ -354,16 +384,19 @@ exit(1);
 
 inputstr_s* get_input_words_struct(char* input)
 {
+
 	char* input_p = input;
 	unsigned int inputlen = 0;
 
 	for(; *input_p != '\0'; input_p++) inputlen++;
+//	if(inputlen) return 0; //return 0 in empty input
+
 	input_p = input;
 
 	const char *input_prev_p = input_p;
 	char* cursor = 0;
 	inputstr_s *inputwords = malloc(sizeof(inputstr_s) * (inputlen + 1)), *inputwords_p = inputwords;
-	memset(inputwords, 0, sizeof(inputstr_s) * inputlen);
+	memset(inputwords, 0, sizeof(inputstr_s) * (inputlen + 1));
 	for(unsigned int i = 0, cur = 0; i < inputlen + 1; i++ )
 {
 	if(*input_p == ' ' || *input_p == '\0')
@@ -390,7 +423,6 @@ inputstr_s* get_input_words_struct(char* input)
 }
 	*cursor = '\0';
 	cursor = 0;
-	inputwords_p->toadd = 0;
 	inputwords_p++;
 	input_prev_p++;
 	cur = i+1;
