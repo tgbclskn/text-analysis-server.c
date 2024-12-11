@@ -58,12 +58,11 @@ typedef struct {
 
 inputstr_s* get_input_words_struct(char *__restrict__ input);
 void *lev_thread_f(void *__restrict__ args);
-void *tas(void* sock);
-void term(int sock, void* arg);
+void *tas(void *__restrict__ arg);
+void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr);
 #ifdef DEBUG
 void pr(const int threadid, lev_found_s* l);
 #endif
-
 
 void *tas(void* arg)
 {
@@ -87,7 +86,7 @@ void *tas(void* arg)
 {
 	const char* answer = "\nInput string is longer than " STR(INPUT_CHARACTER_LIMIT) "\n";
 	write(sock, answer, strlen(answer));
-	term(sock, arg);
+	term(arg, NULL);
 }
 
 	char c = input[i];
@@ -101,7 +100,7 @@ void *tas(void* arg)
 	if(!((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 32))
 {
 	write(sock, "Input string contains unsupported characters\n", 45);
-	term(sock, arg);
+	term(arg, NULL);
 }
 
 	input[i] = tolower(c);
@@ -346,10 +345,9 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 }*/
 
 
-write(sock, "\nbye\n\n", 6);
-free(inputwords);
-term(sock, arg);
 
+term(arg, inputwords);
+write(sock, "\nbye\n\n", 6);
 exit(1);
 } //end main
 
@@ -591,10 +589,18 @@ void pr(const int threadid, lev_found_s* l)
 #endif
 
 
-void term(int sock, void* arg)
+void term(void* arg, inputstr_s* ptr)
 {
-	close(sock);
+	close( ((tas_args*)arg)->new_conn );
 	free(arg);
+
+	if(ptr != NULL)
+{
+	for(inputstr_s* p = ptr; p->len != 0; p++)
+		free(p->st);
+	free(ptr);
+}
+
 	pthread_exit(NULL);
 
 }

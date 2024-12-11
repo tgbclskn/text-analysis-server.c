@@ -20,53 +20,22 @@ typedef struct {
 
 extern void *tas(void* sock);
 void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
-
+void re_init(pthread_mutex_t *file_lock, void *__restrict__ *filebuf, void *__restrict__ *words);
 int main()
 {
 	const int opt = 1;
 	pthread_mutex_t file_lock; pthread_mutex_init(&file_lock, NULL);
+	void *filebuf = 0, *words = 0; //file content ordered by word length (offsets in ptr_off_size)
 	struct sockaddr_in addr_local = {.sin_family = AF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT_NUMBER)}, addr_new_conn;
 	socklen_t addrsize = sizeof(addr_local), addrsize_peer = sizeof(addr_new_conn);
 
-
-        int fd;
-
-	pthread_mutex_lock(&file_lock);
-	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
-{
-        printf("Could not open dictionary file 'basic_english_2000.txt'\n");
-        exit(1);
-}
-
-
-        struct stat filestats_s;
-        fstat(fd, &filestats_s);
-        unsigned long filesize = filestats_s.st_size;
-        if(filesize <= 0)
-{
-        printf("err in getting filesize\n");
-        exit(1);
-}
-
-
-        void *filebuf = malloc(filesize), *filebuf_ptr = filebuf;
-        void *words = malloc(filesize), *words_ptr = words; //file content ordered by word length (offsets in ptr_off_size)
-
-        long charsread = read(fd,filebuf_ptr,filesize);
-        if(charsread == -1)
-{
-        printf("err in reading\n");
-        exit(1);
-}
-
-	pthread_mutex_unlock(&file_lock);
-
+	re_init(&file_lock, &filebuf, &words);
 
         unsigned int lettercount[46]; // Pneumonoultramicroscopicsilicovolcanoconiosis
         memset(&lettercount, 0, sizeof(int) * 46);
 
 
-	filebuf_ptr = filebuf;
+	void* filebuf_ptr = filebuf;
         for(unsigned long c, l = 0; (c = *((char*)filebuf_ptr++)) != '\0';  )
 {
         if(c == '\n')
@@ -78,12 +47,11 @@ int main()
                 l++;
 }
 
-
         void *ptr_off_size[46] = { 0 };
         void *ptr_off_size_tmp = malloc(sizeof(ptr_off_size));
+	void* words_ptr = words;
         calc_ptrs_offset_by_size(ptr_off_size, words_ptr, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
         memcpy(ptr_off_size_tmp, ptr_off_size, sizeof(ptr_off_size));
-
 
 	#ifdef DEBUG
         for(unsigned char l = 0; l < 46; l++)
@@ -114,7 +82,6 @@ int main()
 }
 
         free(ptr_off_size_tmp);
-
 
 
 	int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -185,5 +152,41 @@ void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsign
         ptr_off_size[i] = words_ptr;
 
 }
+
+}
+
+void re_init(pthread_mutex_t *file_lock, void *__restrict__ *filebuf, void *__restrict__ *words)
+{
+
+	pthread_mutex_lock(file_lock);
+        int fd;
+
+	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
+{
+        printf("Could not open dictionary file 'basic_english_2000.txt'\n");
+        exit(1);
+}
+
+        struct stat filestats_s;
+        fstat(fd, &filestats_s);
+        unsigned long filesize = filestats_s.st_size;
+        if(filesize <= 0)
+{
+        printf("err in getting filesize\n");
+        exit(1);
+}
+
+	*filebuf = malloc(filesize);
+        *words = malloc(filesize);
+
+        long charsread = read(fd,*filebuf,filesize);
+        if(charsread == -1)
+{
+        printf("err in reading\n");
+        exit(1);
+}
+
+	close(fd);
+	pthread_mutex_unlock(file_lock);
 
 }
