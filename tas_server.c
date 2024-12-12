@@ -38,8 +38,8 @@ int main()
 
 	re_init(&filebuf, &words);
 
-        unsigned int lettercount[46]; // Pneumonoultramicroscopicsilicovolcanoconiosis
-        memset(&lettercount, 0, sizeof(int) * 46);
+        unsigned int lettercount[47]; // Pneumonoultramicroscopicsilicovolcanoconiosis
+        memset(&lettercount, 0, sizeof(int) * 47);
 
 
 	void* filebuf_ptr = filebuf;
@@ -54,14 +54,14 @@ int main()
                 l++;
 }
 
-        void *ptr_off_size[46] = { 0 };
+        void *ptr_off_size[47] = { 0 };
         void *ptr_off_size_tmp = malloc(sizeof(ptr_off_size));
 	void* words_ptr = words;
         calc_ptrs_offset_by_size(ptr_off_size, words_ptr, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
         memcpy(ptr_off_size_tmp, ptr_off_size, sizeof(ptr_off_size));
 
 	#ifdef DEBUG
-        for(unsigned char l = 0; l < 46; l++)
+        for(unsigned char l = 0; l < 47; l++)
 		printf("ptr_off_size[%u]:%lu\n",l,*(long*)(ptr_off_size_tmp + (l*8)));
         getchar();
         #endif
@@ -194,7 +194,7 @@ int main()
 void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsigned int *lettercount) // order in mem by wlen
 {
         ptr_off_size[0] = 0;
-        for(unsigned int i = 1; i < 46; i++)
+        for(unsigned int i = 1; i < 47; i++)
 {
         words_ptr += lettercount[i-1] * i; // offset(1) always at 0
         ptr_off_size[i] = words_ptr;

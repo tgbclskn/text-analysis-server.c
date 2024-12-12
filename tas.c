@@ -147,7 +147,7 @@ lev_thread_args_s thread_args[cpus];
 int sign[2] = {-1, 1};
 
 for(unsigned int i = 0; i < LEV_SIZE; i++)
-{	lev_found[i].dist = 46;
+{	lev_found[i].dist = 47;
 	lev_found[i].ptr = 0;
 }
 
@@ -191,10 +191,12 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	printf("sign: %d\n",sign[s]);
 	#endif
 
-	if(sign[s] == -1 && (unsigned int)i >= inputwords_ptr->len)
-		continue;
+	//if((unsigned int)i >= inputwords_ptr->len && sign[s] == -1)
+	//	continue;
 
 	unsigned int len_off = (inputwords_ptr->len) + (i*sign[s]);
+	if(len_off == 0 || len_off > 45) continue;
+
 	void* mem_start = ptr_off_size[len_off];
 	void* mem_end = ptr_off_size[len_off+1];
 	const unsigned int maxcpu = (mem_end-mem_start)/(len_off+1);
@@ -331,7 +333,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
 	lev_found[i].ptr = 0;
-	lev_found[i].dist = 46;
+	lev_found[i].dist = 47;
 }
 
 
@@ -467,7 +469,7 @@ void *lev_thread_f(void *void_arg)
 	void* closest_ptr_arr[LEV_SIZE];
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
-	closest_dist_arr[i] = 46;
+	closest_dist_arr[i] = 47;
 	closest_ptr_arr[i] = 0;
 }
 
