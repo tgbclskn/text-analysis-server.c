@@ -20,75 +20,30 @@ typedef struct {
 	void** ptr_off_size;
 	newword** node;
 	pthread_mutex_t* newword_lock;
+	unsigned int* nodecount;
 	int new_conn;
 	unsigned long id;
 } tas_args;
 
-extern void *tas(void* sock);
-void calc_ptrs_offset_by_size(void **__restrict__ ptr_off_size, void *__restrict__ words_ptr, const unsigned int *__restrict__ lettercount);
-void re_init(void *__restrict__ *filebuf, void *__restrict__ *words);
+extern void *tas(void *__restrict__ const sock);
+static void calc_ptrs_offset_by_size(void *__restrict__ *__restrict__ const ptr_off_size, void *__restrict__ const words, const unsigned int *__restrict__ const lettercount);
+static void init(void *__restrict__ ptr_off_size_sel);
+static int add_new_word(newword **__restrict__ node_p, unsigned int* const nc);
 int main()
 {
 	const int opt = 1;
-	pthread_mutex_t newword_lock; pthread_mutex_init(&newword_lock, NULL);
-	void *filebuf = 0, *words = 0; //file content ordered by word length (offsets in ptr_off_size)
 	struct sockaddr_in addr_local = {.sin_family = AF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT_NUMBER)}, addr_new_conn;
 	socklen_t addrsize = sizeof(addr_local), addrsize_peer = sizeof(addr_new_conn);
-	newword* node = 0;
-
-	re_init(&filebuf, &words);
-
-        unsigned int lettercount[47]; // Pneumonoultramicroscopicsilicovolcanoconiosis
-        memset(&lettercount, 0, sizeof(int) * 47);
+	pthread_mutex_t newword_lock; pthread_mutex_init(&newword_lock, NULL);
+	newword* node = 0; unsigned int nodecount = 0;
+	//unsigned int s = 0;
 
 
-	void* filebuf_ptr = filebuf;
-        for(unsigned long c, l = 0; (c = *((char*)filebuf_ptr++)) != '\0';  )
-{
-        if(c == '\n')
-{
-                lettercount[l]++;
-                l = 0;
-}
-        else
-                l++;
-}
+        void *ptr_off_size[47] = { 0 }; //ptr_off_size[1] = malloc(1);
+        void *ptr_off_size_sec[47] = { 0 }; //ptr_off_size_sec[1] = malloc(1);
+	void* ptr_off_size_sel = ptr_off_size;
 
-        void *ptr_off_size[47] = { 0 };
-        void *ptr_off_size_tmp = malloc(sizeof(ptr_off_size));
-	void* words_ptr = words;
-        calc_ptrs_offset_by_size(ptr_off_size, words_ptr, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
-        memcpy(ptr_off_size_tmp, ptr_off_size, sizeof(ptr_off_size));
-
-	#ifdef DEBUG
-        for(unsigned char l = 0; l < 47; l++)
-		printf("ptr_off_size[%u]:%lu\n",l,*(long*)(ptr_off_size_tmp + (l*8)));
-        getchar();
-        #endif
-
-	filebuf_ptr = filebuf;
-        void* filebuf_prev_word_ptr = filebuf_ptr;
-        int l = 0;
-        for(unsigned char c; (c = *((char*)filebuf_ptr++)) != '\0';  ) // order by len at offset memory address ptr_off_size[len]
-{
-        if(c == '\n')
-{
-                unsigned int size = l;
-                for(; l > 0; l--) // copy \n too
-{
-                *((char*)((long*)ptr_off_size_tmp)[size]) = tolower(*((char*)filebuf_prev_word_ptr++));
-                ((long*)ptr_off_size_tmp)[size]++;
-}
-                *((char*)((long*)ptr_off_size_tmp)[size]) = '\0';
-                ((long*)ptr_off_size_tmp)[size]++;
-                filebuf_prev_word_ptr++;
-                l = 0;
-}
-        else
-                l++;
-}
-
-        free(ptr_off_size_tmp);
+	init(ptr_off_size_sel);
 
 
 	int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -123,11 +78,16 @@ int main()
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 	printf("listening...\n");
+	unsigned long last = time(NULL), now;
 
 	while(1)
 {
+	now = time(NULL);
 	int fd = accept(sock, (struct sockaddr*)&addr_local, &addrsize);
 	if(fd == -1)
+{
+
+	if(now-last >= 10)
 {
 	pthread_mutex_lock(&newword_lock);
 
@@ -136,33 +96,15 @@ int main()
 	#endif
 
 	if(node != 0)
-{
-	#ifdef DEBUG2
-	printf("node != 0\n");
-	#endif
-
-	newword* node_a = node;
-	newword* to_free;
-
-	do
-{
-	#ifdef DEBUG2
-	printf("word: %s\n", node_a->st);
-	#endif
-
-	free(node_a->st);
-	to_free = node_a;
-	node_a = node_a->next;
-	free(to_free);
-}
-	while(node_a != 0);
-
-	node = 0;
-} // end if(node != 0)
+		add_new_word(&node,&nodecount);
 
 	pthread_mutex_unlock(&newword_lock);
 
-	sleep(1);
+	last = time(NULL);
+} //now-last <= 10
+
+	usleep(50000);
+
 }
 
 	else
@@ -176,6 +118,7 @@ int main()
 	arg->ptr_off_size = ptr_off_size;
 	arg->newword_lock = &newword_lock;
 	arg->node = &node;
+	arg->nodecount = &nodecount;
 
 	pthread_t nonuse;
 	pthread_create(&nonuse, &attr, tas, arg);
@@ -185,15 +128,13 @@ int main()
 
 }
 
-
-
 }
 
 
-
-void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsigned int *lettercount) // order in mem by wlen
+static void calc_ptrs_offset_by_size(void *__restrict__ *__restrict__ const ptr_off_size, void *__restrict__ const words, const unsigned int *__restrict__ const lettercount) // order in mem by wlen
 {
         ptr_off_size[0] = 0;
+        void* words_ptr = words;
         for(unsigned int i = 1; i < 47; i++)
 {
         words_ptr += lettercount[i-1] * i; // offset(1) always at 0
@@ -203,10 +144,13 @@ void calc_ptrs_offset_by_size(void **ptr_off_size, void *words_ptr, const unsign
 
 }
 
-void re_init(void *__restrict__ *filebuf, void *__restrict__ *words)
+
+static void init(void *__restrict__ ptr_off_size_sel)
 {
 
-        int fd;
+	//free((void*)*(long*)(ptr_off_size_sel + 8));
+
+	int fd;
 
 	if((fd = open("basic_english_2000.txt", O_RDONLY)) == -1)
 {
@@ -223,10 +167,10 @@ void re_init(void *__restrict__ *filebuf, void *__restrict__ *words)
         exit(1);
 }
 
-	*filebuf = malloc(filesize);
-        *words = malloc(filesize);
+	void* filebuf = malloc(filesize);
+        void *words = malloc(filesize);
 
-        long charsread = read(fd,*filebuf,filesize);
+        long charsread = read(fd,filebuf,filesize);
         if(charsread == -1)
 {
         printf("err in reading\n");
@@ -235,4 +179,90 @@ void re_init(void *__restrict__ *filebuf, void *__restrict__ *words)
 
 	close(fd);
 
+
+        unsigned int lettercount[47]; // Pneumonoultramicroscopicsilicovolcanoconiosis
+        memset(&lettercount, 0, sizeof(int) * 47);
+
+
+	void* filebuf_ptr = filebuf;
+        for(unsigned long c, l = 0; (c = *((char*)filebuf_ptr++)) != '\0';  )
+{
+        if(c == '\n')
+{
+                lettercount[l]++;
+                l = 0;
+}
+        else
+                l++;
+}
+
+
+	void **ptr_off_size = ptr_off_size_sel;
+	void *ptr_off_size_tmp = malloc(47*8);
+        calc_ptrs_offset_by_size(ptr_off_size, words, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
+        memcpy(ptr_off_size_tmp, ptr_off_size, 47*8);
+
+
+	filebuf_ptr = filebuf;
+        void* filebuf_prev_word_ptr = filebuf_ptr;
+        int l = 0;
+        for(unsigned char c; (c = *((char*)filebuf_ptr++)) != '\0';  ) // order by len at offset memory address ptr_off_size[len]
+{
+        if(c == '\n')
+{
+                unsigned int size = l;
+                for(; l > 0; l--) // copy \n too
+{
+                *((char*)((long*)ptr_off_size_tmp)[size]) = tolower(*((char*)filebuf_prev_word_ptr++));
+		((long*)ptr_off_size_tmp)[size]++;
+}
+                *((char*)((long*)ptr_off_size_tmp)[size]) = '\0';
+                ((long*)ptr_off_size_tmp)[size]++;
+                filebuf_prev_word_ptr++;
+                l = 0;
+}
+        else
+                l++;
+}
+
+        free(ptr_off_size_tmp);
+	free(filebuf);
+
+	#ifdef DEBUG
+        for(unsigned char l = 0; l < 47; l++)
+		printf("ptr_off_size[%u]:%lu\n",l,((long*)ptr_off_size)[l]);
+        getchar();
+        #endif
+
+
+}
+
+
+int add_new_word(newword **__restrict__ node_p, unsigned int* const nc)
+{
+
+
+	#ifdef DEBUG2
+	printf("node != 0\ncount:%u\n",*nc);
+	#endif
+
+	newword* node_a = *node_p;
+	newword* to_free;
+
+	do
+{
+	#ifdef DEBUG2
+	printf("word: %s\n", node_a->st);
+	#endif
+
+	free(node_a->st);
+	to_free = node_a;
+	node_a = node_a->next;
+	free(to_free);
+}
+	while(node_a != 0);
+
+	*node_p = 0;
+	*nc = 0;
+	return 0;
 }

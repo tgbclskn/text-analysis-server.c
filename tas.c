@@ -9,7 +9,7 @@
 #include "levenshtein.h"
 #define _STR(x) #x
 #define STR(x) _STR(x)
-#define INPUT_CHARACTER_LIMIT 100
+#define INPUT_CHARACTER_LIMIT 120
 #define OUTPUT_CHARACTER_LIMIT 200
 //#define LEVENSHTEIN_LIST_LIMIT 5
 #define LEV_SIZE 5
@@ -49,31 +49,32 @@ typedef struct newword_s
 {
 	char* st;
 	struct newword_s* next;
-
 } newword;
 
 typedef struct {
         void** ptr_off_size;
 	newword** node;
         pthread_mutex_t* newword_lock;
+	unsigned int* nodecount;
         int new_conn;
         unsigned long id;
 } tas_args;
 
 
-inputstr_s* get_input_words_struct(char *__restrict__ input);
-void *lev_thread_f(void *__restrict__ args);
+static inputstr_s* get_input_words_struct(char *__restrict__ input);
+static void *lev_thread_f(void *__restrict__ args);
 void *tas(void *__restrict__ arg);
-void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr);
+static void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr);
 #ifdef DEBUG
-void pr(const int threadid, lev_found_s* l);
+static void pr(const int threadid, lev_found_s *__restrict__ l);
 #endif
 
-void *tas(void* arg)
+void *tas(void *__restrict__ arg)
 {
 	int sock = ((tas_args*)arg)->new_conn;
 	void** ptr_off_size = ((tas_args*)arg)->ptr_off_size;
 	newword** ptr_to_node = ((tas_args*)arg)->node;
+	unsigned int* nc = ((tas_args*)arg)->nodecount;
 	pthread_mutex_t* newword_lock = ((tas_args*)arg)->newword_lock;
 //	const int id = ((tas_args*)arg)->id;
 	int lastread;
@@ -286,18 +287,46 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 }	//endif
 
+/*	#ifdef DEBUG2
+	printf("::\n");
+	for(unsigned int di = 0; di < INPUT_CHARACTER_LIMIT + 5; di++)
+		printf("input[%u]:|%c|\n",di,input[di]);
+	printf("\n::");
+	#endif
+*/
 	do
 {
 	read(sock, input, 3);
 
+/*	#ifdef DEBUG2
+	printf("after answer::\n");
+	for(unsigned int di = 0; di < INPUT_CHARACTER_LIMIT + 5; di++)
+		printf("input[%u]:|%c|\n",di,input[di]);
+	printf("\n::\nyes?");
+	#endif
+*/
+
 	if(input[2] != 10)
 {
+/*	#ifdef DEBUG2
+	printf("yes\n");
+	#endif
+*/
 	do
 {
 	read(sock, input, 1);
 }
 	while(input[0] != 10);
 } 	//endif
+
+	else
+{
+/*	#ifdef DEBUG2
+	printf("no\n");
+	#endif
+*/
+}
+
 
 }
 	while(input[2] != 10);
@@ -309,6 +338,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 {	// add word to newword
 
 	pthread_mutex_lock(newword_lock);
+
 
 	newword** node_n = ptr_to_node;
 	while(*node_n != 0) node_n = &((*node_n)->next);
@@ -322,6 +352,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 
 	(*node_n)->next = 0;
+	(*nc)++;
 
 	pthread_mutex_unlock(newword_lock);
 } //endif answer == y
@@ -384,7 +415,7 @@ exit(1);
 } //end main
 
 
-inputstr_s* get_input_words_struct(char* input)
+static inputstr_s* get_input_words_struct(char *__restrict__ input)
 {
 
 	char* input_p = input;
@@ -411,21 +442,40 @@ inputstr_s* get_input_words_struct(char* input)
 	continue;
 }
 
-	inputwords_p->len = i - cur;
-	for(unsigned int j = 0; j < inputwords_p->len; j++)
+	char* tmp = malloc((i - cur) + 1); cursor = tmp;
+	for(unsigned int j = 0; j < i-cur; j++)
 {
-	if(!cursor)
+/*	if(!cursor)
 {
-		inputwords_p->st = malloc(inputwords_p->len + 1);
-		cursor = inputwords_p->st;
-}
+		cursor = tmp;
+//		inputwords_p->st = malloc(inputwords_p->len + 1);
+//		cursor = inputwords_p->st;
+}*/
 	*cursor++ = *input_prev_p++;
 
 
 }
 	*cursor = '\0';
-	cursor = 0;
+//	cursor = 0;
+
+	for(inputstr_s* in = inputwords; ; in++)
+{
+
+	if(in->len == 0)
+{
+	inputwords_p->len = i - cur;
+	inputwords_p->st = tmp;
 	inputwords_p++;
+	break;
+}
+
+	if( strcmp(tmp, in->st) == 0 )
+{
+	free(tmp);
+	break;
+}
+
+}
 	input_prev_p++;
 	cur = i+1;
 
@@ -434,13 +484,12 @@ inputstr_s* get_input_words_struct(char* input)
 	input_p++;
 
 }
-
 	return inputwords;
 
 }
 
 
-void *lev_thread_f(void *void_arg)
+static void *lev_thread_f(void *__restrict__ void_arg)
 {
 	lev_thread_args_s* args = void_arg;
 	const char* st = args->st;
@@ -610,7 +659,7 @@ pthread_exit(NULL);
 
 
 #ifdef DEBUG
-void pr(const int threadid, lev_found_s* l)
+static void pr(const int threadid, lev_found_s *__restrict__ l)
 {
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
@@ -623,7 +672,7 @@ void pr(const int threadid, lev_found_s* l)
 #endif
 
 
-void term(void* arg, inputstr_s* ptr)
+static void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr)
 {
 	close( ((tas_args*)arg)->new_conn );
 	free(arg);
