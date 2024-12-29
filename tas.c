@@ -10,9 +10,10 @@
 #define _STR(x) #x
 #define STR(x) _STR(x)
 #define INPUT_CHARACTER_LIMIT 120
-#define OUTPUT_CHARACTER_LIMIT 200
-//#define LEVENSHTEIN_LIST_LIMIT 5
-#define LEV_SIZE 5
+#define OUTPUT_CHARACTER_LIMIT 400
+#define LEVENSHTEIN_LIST_LIMIT 5
+#define OUTPUT_MAX OUTPUT_CHARACTER_LIMIT
+#define LEV_SIZE LEVENSHTEIN_LIST_LIMIT
 
 
 typedef struct
@@ -45,18 +46,20 @@ typedef struct
 	#endif
 }	lev_thread_args_s;
 
+
 typedef struct newword_s
 {
 	char* st;
 	struct newword_s* next;
 } newword;
 
+
 typedef struct {
         void** ptr_off_size;
 	newword** node;
         pthread_mutex_t* newword_lock;
 	unsigned int* nodecount;
-        int new_conn;
+	int new_conn;
         unsigned long id;
 } tas_args;
 
@@ -65,6 +68,7 @@ static inputstr_s* get_input_words_struct(char *__restrict__ input);
 static void *lev_thread_f(void *__restrict__ args);
 void *tas(void *__restrict__ arg);
 static void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr);
+static int out(int sock, char* outbuf, unsigned int ans_len, unsigned int* outlen_total, unsigned int clear);
 #ifdef DEBUG
 static void pr(const int threadid, lev_found_s *__restrict__ l);
 #endif
@@ -78,6 +82,10 @@ void *tas(void *__restrict__ arg)
 	pthread_mutex_t* newword_lock = ((tas_args*)arg)->newword_lock;
 //	const int id = ((tas_args*)arg)->id;
 	int lastread;
+	unsigned int outlen_total = 0, newstr_len = 0;
+
+	char newstr[INPUT_CHARACTER_LIMIT*20] = { 0 };
+	newstr_len += sprintf(newstr, "OUTPUT: ");
 
 	char input[INPUT_CHARACTER_LIMIT + 5] = { 0 };
 
@@ -154,8 +162,10 @@ for(unsigned int i = 0; i < LEV_SIZE; i++)
 
 
 unsigned int wn = 1;
+
 for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 {
+
 	if(inputwords_ptr->len == 0)
 		break;
 
@@ -192,11 +202,10 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	printf("sign: %d\n",sign[s]);
 	#endif
 
-	//if((unsigned int)i >= inputwords_ptr->len && sign[s] == -1)
-	//	continue;
-
 	unsigned int len_off = (inputwords_ptr->len) + (i*sign[s]);
 	if(len_off == 0 || len_off > 45) continue;
+
+//
 
 	void* mem_start = ptr_off_size[len_off];
 	void* mem_end = ptr_off_size[len_off+1];
@@ -252,6 +261,9 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 	for(unsigned int j = 0; j < cpus && j < maxcpu; j++)
 		pthread_join(ptid[j],NULL);
+
+//
+
 	if(i == 0)
 		break; // 0 * sign is same twice
 
@@ -262,13 +274,13 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 	char outbuf[192]; int ans_len, notexists = ((lev_found[0].dist == 0)? 0: 1);
 	ans_len = sprintf(outbuf, "\nWord %u: %s\nMATCHES: :", wn++, (char*)inputwords_ptr->st);
-	write(sock, outbuf, ans_len);
+	if(out(sock, outbuf, ans_len, &outlen_total, 1)) term(arg, inputwords);
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
 {
 	if(lev_found[i].ptr == 0) break;
 	ans_len = sprintf(outbuf, " %s(%u)", (char*)lev_found[i].ptr, lev_found[i].dist);
-	write(sock, outbuf, ans_len);
+	if(out(sock, outbuf, ans_len, &outlen_total, 0)) term(arg, inputwords);
 
 } write(sock, "\n", 1);
 
@@ -337,6 +349,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 	if(answer == 'Y' || answer == 'y')
 {	// add word to newword
 
+	newstr_len += sprintf(newstr+newstr_len, "%s ", (char*)inputwords_ptr->st);
 	pthread_mutex_lock(newword_lock);
 
 
@@ -356,9 +369,18 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 	pthread_mutex_unlock(newword_lock);
 } //endif answer == y
+else
+{
+	newstr_len += sprintf(newstr+newstr_len, "%s ", (char*)lev_found[0].ptr);
+}
 
 
 } //endif (notexists)
+
+else
+{
+	newstr_len += sprintf(newstr+newstr_len, "%s ", (char*)inputwords_ptr->st);
+}
 
 
 	for(unsigned int i = 0; i < LEV_SIZE; i++)
@@ -369,6 +391,7 @@ for(inputstr_s* inputwords_ptr = inputwords;; inputwords_ptr++)
 
 
 } //end inputstr
+if(out(sock, newstr, newstr_len, &outlen_total, 1)) term(arg, inputwords);
 
 	// add new words to file
 /*
@@ -688,4 +711,20 @@ static void term(void *__restrict__ arg, inputstr_s *__restrict__ ptr)
 
 }
 
+static int out(int sock, char* outbuf, unsigned int ans_len, unsigned int* outlen_total, unsigned int clear)
+{
 
+	if(clear)
+		*outlen_total = ans_len;
+	else
+		*outlen_total += ans_len;
+
+	if(*outlen_total > OUTPUT_MAX)
+{
+	write(sock, "\nMaximum output length reached, terminating.\n", 45);
+	return -1;
+}
+
+	write(sock, outbuf, ans_len);
+	return 0;
+}
