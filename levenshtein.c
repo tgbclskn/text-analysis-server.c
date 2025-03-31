@@ -25,11 +25,12 @@ levenshtein_n(const char *__restrict__ a, const size_t length, const char *__res
   }
 
   size_t *cache = calloc(length, sizeof(size_t));
+  if(cache == 0) return 1;
   size_t index = 0;
   size_t bIndex = 0;
   size_t distance;
   size_t bDistance;
-  size_t result;
+  size_t result = 0;
   char code;
 
   // initialize the vector.
@@ -43,7 +44,7 @@ levenshtein_n(const char *__restrict__ a, const size_t length, const char *__res
     code = b[bIndex];
     result = distance = bIndex++;
     index = SIZE_MAX;
-
+    
     while (++index < length) {
       bDistance = code == a[index] ? distance : distance + 1;
       distance = cache[index];

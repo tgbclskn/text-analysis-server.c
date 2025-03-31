@@ -9,7 +9,7 @@
 #include "levenshtein.h"
 #define _STR(x) #x
 #define STR(x) _STR(x)
-#define INPUT_CHARACTER_LIMIT 120
+#define INPUT_CHARACTER_LIMIT 30
 #define OUTPUT_CHARACTER_LIMIT 400
 #define LEVENSHTEIN_LIST_LIMIT 5
 #define OUTPUT_MAX OUTPUT_CHARACTER_LIMIT
@@ -452,6 +452,7 @@ static inputstr_s* get_input_words_struct(char *__restrict__ input)
 	const char *input_prev_p = input_p;
 	char* cursor = 0;
 	inputstr_s *inputwords = malloc(sizeof(inputstr_s) * (inputlen + 1)), *inputwords_p = inputwords;
+	if(inputwords == 0) exit(1);
 	memset(inputwords, 0, sizeof(inputstr_s) * (inputlen + 1));
 	for(unsigned int i = 0, cur = 0; i < inputlen + 1; i++ )
 {
@@ -466,6 +467,7 @@ static inputstr_s* get_input_words_struct(char *__restrict__ input)
 }
 
 	char* tmp = malloc((i - cur) + 1); cursor = tmp;
+	if(tmp == 0) exit(1);
 	for(unsigned int j = 0; j < i-cur; j++)
 {
 /*	if(!cursor)

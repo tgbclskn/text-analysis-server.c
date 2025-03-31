@@ -8,7 +8,7 @@
 #include<stdlib.h>
 #include<fcntl.h>
 #include<pthread.h>
-#define PORT_NUMBER 8888
+#define PORT_NUMBER 60000
 
 
 typedef struct newword_s
@@ -114,6 +114,7 @@ int main()
 	printf("New connection from %s (id: %lu)\n",inet_ntoa(addr_new_conn.sin_addr), id);
 
 	tas_args* arg = malloc(sizeof(tas_args));
+	if(arg == 0) exit(1);
 	arg->new_conn = fd;
 	arg->id = id;
 	arg->ptr_off_size = ptr_off_size;
@@ -127,6 +128,9 @@ int main()
 }
 
 }
+
+//	close(sock);
+	free(ptr_off_size[0]);
 
 }
 
@@ -194,9 +198,9 @@ static void init(void **__restrict__ ptr_off_size)
                 l++;
 }
 
-
 	void *ptr_off_size_tmp = malloc(47*8);
-        calc_ptrs_offset_by_size(ptr_off_size, words, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
+        if(ptr_off_size_tmp == 0) exit(1);
+	calc_ptrs_offset_by_size(ptr_off_size, words, lettercount); // ptr_off_size[len] - ptr_off_size[len+1] -> addresses of words length len
         memcpy(ptr_off_size_tmp, ptr_off_size, 47*8);
 
 
@@ -224,7 +228,7 @@ static void init(void **__restrict__ ptr_off_size)
 
         free(ptr_off_size_tmp);
 	free(filebuf);
-
+	ptr_off_size[0] = words;
 
 	#ifdef DEBUG
         for(unsigned char l = 0; l < 47; l++)
